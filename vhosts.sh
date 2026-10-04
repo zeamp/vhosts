@@ -24,36 +24,72 @@
 # Define excluded IPs and RDNS entries that you want to hide from this list
 # such as your private hosts or any other entry.
 
+#!/usr/bin/env bash
+
+show_no_rdns4=1  # Set to 1 to show IPv4 with no RDNS, 0 to hide
+show_no_rdns6=1  # Set to 1 to show IPv6 with no RDNS, 0 to hide
+
+# Define excluded IPs and RDNS entries
+
 EXCLUDED_IPS=(
     "2006:320:2:17b::100"
     "192.168.1.1"
 )
+
 EXCLUDED_RDNS=(
     "example.com"
     "badhost.local"
 )
 
-# Get all assigned IP addresses (IPv4 and IPv6)
 IP_LIST=$(ip -o -4 addr show | awk '{print $4}' | cut -d/ -f1; ip -o -6 addr show | awk '{print $4}' | cut -d/ -f1)
 
-echo "Listing IP addresses and RDNS (excluding specified entries):"
+echo "Generating, please wait..."
 
 declare -A RDNS_CACHE
+declare -a WITH_RDNS
+declare -a WITHOUT_RDNS
 
 for IP in $IP_LIST; do
     # Skip if IP is in the exclusion list
     if [[ " ${EXCLUDED_IPS[@]} " =~ " $IP " ]]; then
         continue
     fi
-    
-    # Get RDNS
+
     RDNS=$(dig +short -x "$IP" 2>/dev/null)
-    
+
     # Skip if RDNS is empty or in the exclusion list
     if [[ -n "$RDNS" ]] && [[ " ${EXCLUDED_RDNS[@]} " =~ " $RDNS " ]]; then
         continue
     fi
-    
-    # Cache and print
-    echo "$IP - ${RDNS:-(No RDNS)}"
+
+    if [[ $IP =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        # IPv4: Skip if no RDNS and show_no_rdns4 is 0
+        if [[ $show_no_rdns4 -eq 0 && -z "$RDNS" ]]; then
+            continue
+        fi
+    else
+        if [[ $show_no_rdns6 -eq 0 && -z "$RDNS" ]]; then
+            continue
+        fi
+    fi
+
+    RDNS_CACHE["$IP"]="$RDNS"
+
+    FORMATTED_LINE=$(printf "%-25s -   %s" "$IP" "${RDNS:-(No RDNS)}")
+
+    if [[ -n "$RDNS" ]]; then
+        WITH_RDNS+=("$FORMATTED_LINE")
+    else
+        WITHOUT_RDNS+=("$FORMATTED_LINE")
+    fi
 done
+
+OUTPUT_LIST=("${WITH_RDNS[@]}" "${WITHOUT_RDNS[@]}")
+
+echo " "
+echo "Listing IP addresses and RDNS (available vhosts):"
+echo " "
+for line in "${OUTPUT_LIST[@]}"; do
+    echo "$line"
+done | more
+echo " "
